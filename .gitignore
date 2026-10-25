@@ -1,0 +1,12 @@
+# Raw and converted data (too large for git; see Data/README.md)
+Data/*
+!Data/README.md
+
+# Daily practice notebooks (drafts); the polished analysis is in Notebooks/0*.ipynb
+Notebooks/day*.ipynb
+
+# System / editor
+.DS_Store
+.ipynb_checkpoints/
+__pycache__/
+.vscode/
