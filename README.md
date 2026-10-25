@@ -58,7 +58,7 @@ Source: [Kaggle: All Lending Club loan data](https://www.kaggle.com/datasets/wor
 
 | Issue | Detection | Fix |
 |---|---|---|
-| 33 fully blank rows (file footer) | `loan_status IS NULL` → every column empty | Dropped |
+| 33 file footer rows (summary text in `id`, all other columns empty) | `loan_status IS NULL` | Dropped |
 | `issue_d` stored as text (`'Dec-2015'`): sorts alphabetically | `SELECT DISTINCT issue_d` | `strptime(issue_d, '%b-%Y')` |
 | `term = '36 months'` returned 0 rows | Failed sanity check → `LENGTH(term)` = 10 not 9 | Leading space → `TRIM` + cast to integer |
 | Income bin boundary `> 100000` dropped **8,430 loans** reporting exactly \$100,000 | Bin counts didn't sum to the population | Inclusive lower bounds + explicit `Missing` bin + coverage `assert` |
@@ -138,6 +138,15 @@ Source: [Kaggle: All Lending Club loan data](https://www.kaggle.com/datasets/wor
 - [ ] Cut-off strategy: approval rate vs. bad rate trade-off, expected loss (PD × LGD × EAD)
 - [ ] Executive dashboard
 
+## Daily work log
+The day-by-day working notebooks, cleaned up, show how the analysis was built: exploration, dead ends, the bugs found and how they were fixed.
+
+| Day | Notebook | Focus |
+|---|---|---|
+| 1 | [day1_exploration_and_cleaning](Notebooks/worklog/day1_exploration_and_cleaning.ipynb) | Profiling, data quality fixes, target definition, bad rate by grade, approval rate (CTE + JOIN) |
+| 2 | [day2_joins_and_returns](Notebooks/worklog/day2_joins_and_returns.ipynb) | INNER vs. LEFT JOIN experiment, realized return by grade, data leakage |
+| 3 | [day3_trends_and_risk_drivers](Notebooks/worklog/day3_trends_and_risk_drivers.ipynb) | Grade segments, monthly trend + `LAG` window function, home ownership, income binning |
+
 ---
 
 ## Repository structure
@@ -152,7 +161,8 @@ Source: [Kaggle: All Lending Club loan data](https://www.kaggle.com/datasets/wor
 │   ├── 02_portfolio_growth_and_approval.ipynb
 │   ├── 03_risk_return_by_grade.ipynb
 │   ├── 04_volume_anomaly_2016.ipynb
-│   └── 05_application_risk_drivers.ipynb
+│   ├── 05_application_risk_drivers.ipynb
+│   └── worklog/                 ← cleaned day-by-day working notebooks
 ├── images/                      ← charts used in this README
 └── Data/                        ← raw data (not tracked; see Data/README.md)
 ```

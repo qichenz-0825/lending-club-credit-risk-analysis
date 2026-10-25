@@ -13,7 +13,7 @@ FROM '{data_dir}/accepted.parquet';
 
 -- -----------------------------------------------------------------------------
 -- loans_clean: all accepted loans, cleaned
---   * drops 33 blank / footer rows (loan_status IS NULL; every column empty)
+--   * drops 33 file-footer rows (loan_status IS NULL; summary text in id, all else empty)
 --   * issue_d is stored as text ('Dec-2015'), so text sorting is wrong;
 --     parse it to a real date (day defaults to the 1st of the month)
 --   * term is stored as ' 36 months' with a leading space; normalize to an integer
