@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lending Club Risk Dashboard</title>
+<meta name="description" content="Interactive results: growth, approval funnel, 2016 slowdown, risk vs. return by grade, and application-time risk drivers for 2.26M Lending Club loans.">
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f7f5; --card: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --border: #e3e3e0;
+    --c1: #2f6db5; --c2: #e07b39; --c3: #3a9d6e; --dim: #b9b9bf; --accent-bg: #eef3fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141416; --card: #1d1d20; --text: #ececee; --muted: #9a9aa2; --border: #2e2e33;
+      --c1: #6aa3e8; --c2: #f0a064; --c3: #5cc495; --dim: #55555c; --accent-bg: #1f2a38;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 64px; }
+  header h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); }
+  header a { color: var(--c1); }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin: 24px 0 8px; }
+  .kpi { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .kpi .v { font-size: 26px; font-weight: 650; }
+  .kpi .l { color: var(--muted); font-size: 13px; }
+  section { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; margin-top: 20px; }
+  section h2 { font-size: 19px; margin: 0 0 4px; }
+  .bluf { background: var(--accent-bg); border-radius: 10px; padding: 10px 14px; margin: 10px 0 12px; }
+  .note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  .chart { width: 100%; height: 400px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 4px; }
+  .controls button, .controls select {
+    font: inherit; font-size: 14px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  .controls button[aria-pressed="true"] { background: var(--c1); color: #fff; border-color: var(--c1); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: 8px; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  th:first-child, td:first-child { text-align: left; }
+  .neg { color: #d0453a; } .pos { color: var(--c3); }
+  .grid2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } .chart { height: 340px; } }
+  footer { color: var(--muted); font-size: 13px; margin-top: 28px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Consumer Lending Portfolio: Growth, Risk &amp; Return</h1>
+    <p>Lending Club, 2007–2018 · interactive results · hover any chart for details ·
+       <a href="https://github.com/qichenz-0825/lending-club-credit-risk-analysis">code &amp; full report on GitHub</a></p>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <section>
+    <h2>1. Growth &amp; approval funnel</h2>
+    <div class="bluf"><b>Volume grew ~400× from 2008 to 2018 while the approval rate fell from 15.1% (2013) to 5.0%.</b>
+      Applications tripled from 2015 to 2018; approvals rose only 18%.</div>
+    <div id="chart-yearly" class="chart"></div>
+    <p class="note">2007 covers June–December only. Approval rate = approved ÷ (approved + rejected applications).</p>
+  </section>
+
+  <section>
+    <h2>2. The 2016 slowdown</h2>
+    <div class="bluf"><b>Funded volume was down year-over-year for 10 straight months (Jul-2016 → Apr-2017).</b>
+      April 2016's −43% month-over-month drop is a base effect from the March spike; year-over-year it was −0.4%.</div>
+    <div class="controls" role="group" aria-label="Monthly view">
+      <button data-view="level" aria-pressed="true">Funded amount</button>
+      <button data-view="mom" aria-pressed="false">Month-over-month</button>
+      <button data-view="yoy" aria-pressed="false">Year-over-year</button>
+    </div>
+    <div class="grid2">
+      <div id="chart-monthly" class="chart"></div>
+      <div>
+        <b>What drove it? H2-2016 vs. H2-2015</b>
+        <table id="decomp"></table>
+        <p class="note">Funded volume = applications × approval rate × average loan size.
+          Demand rose; the drop came from approvals. Still to test: policy tightening vs. weaker applicant mix vs. investor funding.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Risk vs. return by grade</h2>
+    <div class="bluf"><b>Grade rank-orders risk well (5.4% → 42.0% bad rate), and every grade is profitable,
+      but realized return peaks in grade B (8.3%) and falls to 2.2% in G.</b> Lower grades are not paid for their extra risk.</div>
+    <div id="chart-grade" class="chart"></div>
+    <p class="note">2014–2015 issued, 36-month loans (all matured). Realized return = total collected ÷ total funded − 1, 3-year total, before fees and funding costs.</p>
+  </section>
+
+  <section>
+    <h2>4. Application-time risk drivers</h2>
+    <div class="bluf"><b>Every variable carries signal, but none comes close to grade:</b>
+      single variables separate risk by 1.5–1.9×, versus ~7.8× for grade.</div>
+    <div class="controls">
+      <label for="driver" style="align-self:center">Variable</label>
+      <select id="driver"></select>
+    </div>
+    <div class="grid2">
+      <div id="chart-driver" class="chart"></div>
+      <div id="chart-sep" class="chart"></div>
+    </div>
+    <p class="note">Grey bars have fewer than 300 loans and are too small to trust; they are excluded from the separation ratio (highest ÷ lowest bin bad rate).</p>
+  </section>
+
+  <footer>Built with DuckDB, pandas and Plotly. Source: Kaggle "All Lending Club loan data".
+    Bad = Charged Off or 31–120 days late; Good = Fully Paid; other statuses excluded.</footer>
+</main>
+
+<script>
+const DATA = /*__DATA__*/null;
+
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const pct = (v, d = 1) => (v == null ? "–" : (v * 100).toFixed(d) + "%");
+const fmt = v => v.toLocaleString("en-US");
+
+function layout(extra = {}) {
+  return Object.assign({
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: "inherit", color: css("--text"), size: 13 },
+    margin: { l: 56, r: 56, t: 16, b: 44 },
+    legend: { orientation: "h", y: 1.12, x: 0 },
+    hoverlabel: { bgcolor: css("--card"), bordercolor: css("--border"), font: { color: css("--text") } },
+    xaxis: { gridcolor: css("--border"), zeroline: false },
+    yaxis: { gridcolor: css("--border"), zeroline: false },
+  }, extra);
+}
+const CONFIG = { displayModeBar: false, responsive: true };
+
+// KPI cards
+const k = DATA.kpis;
+document.getElementById("kpis").innerHTML = [
+  [(k.n_loans / 1e6).toFixed(2) + "M", "funded loans, 2007–2018"],
+  ["$" + k.funded_bn.toFixed(0) + "B", "total funded"],
+  [(k.n_rejected / 1e6).toFixed(1) + "M", "declined applications"],
+  [pct(k.bad_rate), "bad rate, matured 2014–15 cohort"],
+].map(([v, l]) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+
+// 1. Yearly volume + approval rate
+function drawYearly() {
+  const y = DATA.yearly;
+  Plotly.react("chart-yearly", [
+    { type: "bar", name: "Funded ($M)", x: y.map(r => r.year), y: y.map(r => r.funded_mm),
+      marker: { color: css("--c1") }, customdata: y.map(r => [r.n_accepted, r.n_rejected]),
+      hovertemplate: "%{x}<br>Funded: $%{y:,.0f}M<br>Approved: %{customdata[0]:,}<br>Rejected: %{customdata[1]:,}<extra></extra>" },
+    { type: "scatter", mode: "lines+markers", name: "Approval rate", yaxis: "y2",
+      x: y.map(r => r.year), y: y.map(r => r.approval_rate), line: { color: css("--c2"), width: 3 },
+      hovertemplate: "%{x}<br>Approval rate: %{y:.1%}<extra></extra>" },
+  ], layout({
+    yaxis: { title: "Funded ($M)", gridcolor: css("--border") },
+    yaxis2: { title: "Approval rate", overlaying: "y", side: "right", tickformat: ".0%", showgrid: false, rangemode: "tozero" },
+    xaxis: { dtick: 1 },
+  }), CONFIG);
+}
+
+// 2. Monthly view with toggle
+let monthlyView = "level";
+function drawMonthly() {
+  const m = DATA.monthly;
+  const x = m.map(r => r.month);
+  let trace, yaxis;
+  if (monthlyView === "level") {
+    const base = m.filter(r => r.month.startsWith("2015")).reduce((s, r) => s + r.funded_mm, 0) / 12;
+    trace = [
+      { type: "scatter", mode: "lines+markers", x, y: m.map(r => r.funded_mm), name: "Funded ($M)",
+        line: { color: css("--c1"), width: 2.5 }, hovertemplate: "%{x}<br>$%{y:,.0f}M<extra></extra>" },
+      { type: "scatter", mode: "lines", x: [x[0], x[x.length - 1]], y: [base, base], name: "2015 average",
+        line: { color: css("--muted"), dash: "dash" }, hoverinfo: "skip" },
+    ];
+    yaxis = { title: "Funded ($M)", gridcolor: css("--border") };
+  } else {
+    const key = monthlyView;
+    const vals = m.map(r => r[key]);
+    trace = [{ type: "bar", x, y: vals, name: key === "mom" ? "MoM change" : "YoY change",
+      marker: { color: vals.map(v => v == null ? css("--dim") : v < 0 ? "#d0453a" : css("--c3")) },
+      hovertemplate: "%{x}<br>%{y:+.1%}<extra></extra>" }];
+    yaxis = { title: key === "mom" ? "vs. previous month" : "vs. same month last year", tickformat: "+.0%", gridcolor: css("--border") };
+  }
+  Plotly.react("chart-monthly", trace, layout({ yaxis, showlegend: monthlyView === "level",
+    shapes: [{ type: "rect", xref: "x", yref: "paper", x0: "2016-06-15", x1: "2017-04-15", y0: 0, y1: 1,
+               fillcolor: css("--c2"), opacity: 0.08, line: { width: 0 } }] }), CONFIG);
+}
+document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click", () => {
+  monthlyView = b.dataset.view;
+  document.querySelectorAll("[data-view]").forEach(o => o.setAttribute("aria-pressed", o === b));
+  drawMonthly();
+}));
+
+// Decomposition table
+(function () {
+  const [a, b] = DATA.decomp;
+  const rows = [
+    ["Applications", a.applications, b.applications, v => fmt(Math.round(v))],
+    ["Approval rate", a.approval_rate, b.approval_rate, v => pct(v)],
+    ["Avg loan size", a.avg_loan_size, b.avg_loan_size, v => "$" + fmt(Math.round(v))],
+    ["Funded", a.funded_mm, b.funded_mm, v => "$" + fmt(Math.round(v)) + "M"],
+  ];
+  document.getElementById("decomp").innerHTML =
+    "<tr><th></th><th>H2-2015</th><th>H2-2016</th><th>Change</th></tr>" +
+    rows.map(([n, x, y, f]) => {
+      const c = y / x - 1;
+      return `<tr><td>${n}</td><td>${f(x)}</td><td>${f(y)}</td><td class="${c < 0 ? "neg" : "pos"}">${c > 0 ? "+" : ""}${pct(c)}</td></tr>`;
+    }).join("");
+})();
+
+// 3. Grade risk vs return
+function drawGrade() {
+  const g = DATA.grade;
+  Plotly.react("chart-grade", [
+    { type: "bar", name: "Bad rate", x: g.map(r => r.grade), y: g.map(r => r.bad_rate),
+      marker: { color: css("--c2") }, customdata: g.map(r => [r.n_loans, r.int_rate]),
+      hovertemplate: "Grade %{x}<br>Bad rate: %{y:.1%}<br>Loans: %{customdata[0]:,}<br>Avg rate: %{customdata[1]:.1%}<extra></extra>" },
+    { type: "scatter", mode: "lines+markers", name: "Realized return (3-yr)", x: g.map(r => r.grade),
+      y: g.map(r => r.realized_return), line: { color: css("--c3"), width: 3 }, marker: { size: 9 },
+      hovertemplate: "Grade %{x}<br>Realized return: %{y:.1%}<extra></extra>" },
+  ], layout({ yaxis: { tickformat: ".0%", gridcolor: css("--border"), title: "Rate" } }), CONFIG);
+}
+
+// 4. Drivers + separation
+const sel = document.getElementById("driver");
+Object.keys(DATA.drivers).forEach(n => sel.add(new Option(n, n)));
+function drawDriver() {
+  const rows = DATA.drivers[sel.value];
+  Plotly.react("chart-driver", [{
+    type: "bar", x: rows.map(r => r.label), y: rows.map(r => r.bad_rate),
+    marker: { color: rows.map(r => r.n_loans < 300 ? css("--dim") : css("--c1")) },
+    customdata: rows.map(r => r.n_loans),
+    hovertemplate: "%{x}<br>Bad rate: %{y:.1%}<br>Loans: %{customdata:,}<extra></extra>",
+  }], layout({ yaxis: { tickformat: ".0%", gridcolor: css("--border"), title: "Bad rate" },
+               xaxis: { tickangle: sel.value === "Purpose" ? -40 : 0 }, margin: { l: 56, r: 16, t: 16, b: 90 } }), CONFIG);
+}
+function drawSeparation() {
+  const s = DATA.separation;
+  Plotly.react("chart-sep", [{
+    type: "bar", orientation: "h", y: s.map(r => r.variable), x: s.map(r => r.ratio),
+    marker: { color: s.map(r => r.variable.startsWith("Grade") ? css("--c2") : css("--c1")) },
+    text: s.map(r => r.ratio.toFixed(2) + "×"), textposition: "outside", cliponaxis: false,
+    hovertemplate: "%{y}: %{x:.2f}×<extra></extra>",
+  }], layout({ xaxis: { title: "Highest ÷ lowest bin bad rate", gridcolor: css("--border"), range: [0, Math.max(...s.map(r => r.ratio)) * 1.25] },
+               margin: { l: 130, r: 40, t: 16, b: 44 } }), CONFIG);
+}
+sel.addEventListener("change", drawDriver);
+
+function drawAll() { drawYearly(); drawMonthly(); drawGrade(); drawDriver(); drawSeparation(); }
+drawAll();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawAll);
+</script>
+</body>
+</html>

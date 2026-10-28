@@ -10,3 +10,6 @@ Notebooks/day*.ipynb
 .ipynb_checkpoints/
 __pycache__/
 .vscode/
+
+# Local notebook build scripts (not part of the published project)
+.build/

@@ -1,7 +1,10 @@
 # Consumer Lending Portfolio Analysis: Growth, Risk & Return
 
 **Lending Club, 2007–2018 · 2.26M funded loans · 27.6M declined applications**
-SQL (DuckDB) · Python (pandas, matplotlib) · Jupyter
+SQL (DuckDB) · Python (pandas, matplotlib, Plotly) · Jupyter
+
+### 📊 [Interactive dashboard →](https://qichenz-0825.github.io/lending-club-credit-risk-analysis/)
+Hover, toggle and filter every result in the browser.
 
 > An end-to-end credit risk and analytics review of a consumer lending book. I build an analysis-ready loan population and a documented default definition, track growth and the approval funnel, test whether pricing compensates for risk, diagnose a volume anomaly, and identify application-time risk drivers as the groundwork for a PD model.
 
@@ -14,13 +17,14 @@ SQL (DuckDB) · Python (pandas, matplotlib) · Jupyter
 | 1 | **How risky is the book?** | On fully matured 2014–2015 36-month loans, **14.5%** went bad. Lending Club's grade **rank-orders risk well**: 5.4% (A) → 42.0% (G), a **7.8×** spread. |
 | 2 | **Does pricing cover the extra risk?** | **Losses are covered, but risk isn't paid for.** Every grade is profitable, yet realized 3-year return **peaks at 8.3% in grade B and falls to 2.2% in grade G**. B–C earn **1.8×** the return of E–G at **less than half** the bad rate. |
 | 3 | **How is the funnel evolving?** | Funded volume grew from **\$20M (2008) to \$7.9B (2018)**. The approval rate fell from **15.1% (2013) to 5.0% (2018)** because **applications tripled** (2015 → 2018) while approvals rose only 18%. |
-| 4 | **What happened in 2016?** | A one-off spike in **March 2016 (\$949M)** was followed by a **~12% dip below the 2015 run-rate for a year**. The headline **−43% MoM** in April is mostly a **base effect**. Volume recovered from May 2017. |
-| 5 | **Which applicant traits signal risk?** | **Income** (19.6% → 10.3%, monotonic, 1.9×) and **home ownership** (renters 17.2% vs. mortgage holders 11.8%, 1.5×) carry signal but are much weaker than grade. A multivariate model is needed. |
+| 4 | **What happened in 2016?** | After a one-off spike in **March 2016 (\$949M)**, volume was **down year-over-year for 10 straight months** (Jul-2016 → Apr-2017). The headline **−43% MoM** in April is a **base effect** (YoY: −0.4%). H2-2016 vs. H2-2015: funded **−21.9%**, driven by the **approval rate (−45%)** while **applications rose 54%**. |
+| 5 | **Which applicant traits signal risk?** | Income, purpose, DTI, employment length and home ownership all carry signal, but each separates risk by only **1.5–1.9×**, against **7.8×** for grade. Missing employment length is a strong flag (21.1% bad rate). A multivariate model is needed. |
 
 ### Recommendations
 1. **Tighten approval or cap exposure in grades E–G** (4.6% of loans) and redirect volume to **B–C**, the best risk-adjusted segment. Don't simply raise E–G rates: higher prices worsen **adverse selection**.
-2. **Monitor volume against a seasonal baseline**, not month-over-month: 2015 shows quarter-start peaks (Apr / Jul / Oct) that make MoM swings noisy.
-3. **Build an application-time PD model** (WOE/IV feature selection → logistic scorecard and gradient boosting) and use grade as the **benchmark** to beat.
+2. **Monitor volume year-over-year and against a baseline**, not month-over-month: quarter-start peaks and one-off spikes make MoM swings misleading.
+3. **Diagnose the 2016 approval-rate drop** before acting on it: separate policy tightening from a weaker applicant mix (compare approval rates within `Risk_Score` bands) and from investor funding constraints.
+4. **Build an application-time PD model** (WOE/IV feature selection → logistic scorecard and gradient boosting) and use grade as the **benchmark** to beat.
 
 ---
 
@@ -93,26 +97,45 @@ Source: [Kaggle: All Lending Club loan data](https://www.kaggle.com/datasets/wor
 
 → [notebook 02](Notebooks/02_portfolio_growth_and_approval.ipynb)
 
-### 3. The 2016 slowdown: a base effect plus a real, year-long dip
+### 3. The 2016 slowdown: a base effect plus a real, year-long decline
 ![Monthly funded amount 2015–2017](images/monthly_funded_2015_2017.png)
 
 * April 2016 fell **−43.4% MoM**, but March (\$949M) was a one-off spike, 77% above the 2015 average of **\$535M/month**.
 * From May 2016 to April 2017, monthly volume ran at **\$400–550M**, about **12% below** the 2015 run-rate, and recovered from May 2017.
+* **Year-over-year** removes seasonality: April 2016 was only **−0.4% YoY**, but **Jul-2016 → Apr-2017 was negative for 10 consecutive months**, recovering from May 2017.
+* YoY is not immune to spikes either: March 2017 shows −42% YoY only because March 2016 was the spike.
 * The timing coincides with Lending Club's May 2016 governance crisis (CEO resignation, investor pullback).
-* **Next:** decompose into applications × approval rate × average loan size, and use year-over-year comparisons to remove seasonality.
+
+**Decomposition, H2-2016 vs. H2-2015** (funded = applications × approval rate × avg loan size):
+
+| Driver | H2-2015 | H2-2016 | Change |
+|---|---:|---:|---:|
+| Applications | 1,871,026 | 2,879,775 | **+53.9%** |
+| Approval rate | 12.9% | 7.0% | **−45.4%** |
+| Avg loan size | \$15,250 | \$14,161 | −7.1% |
+| **Funded** | \$3,675M | \$2,870M | **−21.9%** |
+
+Demand rose; the decline came from approvals. Whether that reflects **policy tightening**, a **weaker applicant mix** or an **investor funding constraint** is the next question.
 
 → [notebook 04](Notebooks/04_volume_anomaly_2016.ipynb)
 
 ### 4. Application-time risk drivers
-![Bad rate by income](images/bad_rate_by_income.png)
+![Risk separation by variable](images/separation_by_variable.png)
 
 | Variable | Lowest-risk bucket | Highest-risk bucket | Spread |
 |---|---|---|---:|
 | Grade *(benchmark)* | A: 5.4% | G: 42.0% | 7.8× |
 | Annual income | \$100k+: 10.3% | <\$40k: 19.6% | 1.9× |
+| Purpose | Credit card: 12.0% | Small business: 22.8% | 1.9× |
+| DTI | 0–10: 11.2% | 30–40: 20.6% | 1.8× |
+| Employment length | 10+ years: 12.9% | Missing: 21.1% | 1.6× |
 | Home ownership | Mortgage: 11.8% | Rent: 17.2% | 1.5× |
 
-* Income is **monotonic**, which is required for scorecard bins.
+* Income and DTI are **monotonic**, which is required for scorecard bins.
+* **DTI** contains impossible values (max 999 vs. 99th percentile 37.8), likely placeholders; binning absorbs them.
+* **Missing employment length** is the strongest single flag (21.1% vs. 14–15%): missing not at random, so it gets its own bin rather than being imputed.
+* Tiny categories (`wedding` 11 loans, `educational` 1, home ownership `ANY` 2) show 0% bad rates only by chance and must be merged.
+* The max/min ratio ignores bin sizes (purpose ranks high because of `small_business`, 0.9% of loans); **Information Value** is the next step.
 * Counter-intuitive: mortgage holders default **less** than outright owners (11.8% vs. 15.4%). A plausible explanation is prior bank underwriting; this still needs testing.
 * **Feature rule:** only information available **at the decision point**. `total_pymnt`, `recoveries`, `last_pymnt_d` and `last_fico_range_*` are post-origination and would leak the outcome.
 
@@ -132,11 +155,13 @@ Source: [Kaggle: All Lending Club loan data](https://www.kaggle.com/datasets/wor
 - [x] Portfolio growth and approval funnel
 - [x] Risk vs. return by grade
 - [x] Volume anomaly diagnosis
-- [x] Univariate application-time risk drivers
+- [x] Year-over-year view and driver decomposition of the 2016 slowdown
+- [x] Univariate application-time risk drivers (income, DTI, employment length, purpose, home ownership)
+- [x] Interactive results dashboard (GitHub Pages)
 - [ ] WOE / Information Value for all application-time variables
 - [ ] PD model: logistic scorecard and XGBoost; KS, AUC, Gini, calibration, PSI
 - [ ] Cut-off strategy: approval rate vs. bad rate trade-off, expected loss (PD × LGD × EAD)
-- [ ] Executive dashboard
+- [ ] Mix vs. rate decomposition of the 2016 approval-rate drop (`Risk_Score` bands)
 
 ## Daily work log
 The day-by-day working notebooks, cleaned up, show how the analysis was built: exploration, dead ends, the bugs found and how they were fixed.
@@ -146,6 +171,7 @@ The day-by-day working notebooks, cleaned up, show how the analysis was built: e
 | 1 | [day1_exploration_and_cleaning](Notebooks/worklog/day1_exploration_and_cleaning.ipynb) | Profiling, data quality fixes, target definition, bad rate by grade, approval rate (CTE + JOIN) |
 | 2 | [day2_joins_and_returns](Notebooks/worklog/day2_joins_and_returns.ipynb) | INNER vs. LEFT JOIN experiment, realized return by grade, data leakage |
 | 3 | [day3_trends_and_risk_drivers](Notebooks/worklog/day3_trends_and_risk_drivers.ipynb) | Grade segments, monthly trend + `LAG` window function, home ownership, income binning |
+| 4 | [day4_yoy_decomposition_and_drivers](Notebooks/worklog/day4_yoy_decomposition_and_drivers.ipynb) | YoY with `LAG(x, 12)`, volume decomposition, pandas profiling and binning (DTI, employment length, purpose) |
 
 ---
 
@@ -155,7 +181,10 @@ The day-by-day working notebooks, cleaned up, show how the analysis was built: e
 ├── SQL/
 │   └── 00_create_views.sql      ← cleaning, cohort and target definition (single source of truth)
 ├── src/
-│   └── lending_db.py            ← CSV → Parquet conversion + DuckDB connection with views
+│   ├── lending_db.py            ← CSV → Parquet conversion + DuckDB connection with views
+│   ├── build_dashboard.py       ← exports results to the interactive dashboard
+│   └── dashboard_template.html
+├── docs/index.html              ← interactive dashboard (GitHub Pages)
 ├── Notebooks/
 │   ├── 01_data_preparation.ipynb
 │   ├── 02_portfolio_growth_and_approval.ipynb
@@ -174,3 +203,4 @@ pip install -r requirements.txt
 jupyter lab Notebooks/
 ```
 The first run converts the CSVs to Parquet (a few minutes). Each notebook then runs in seconds.
+Rebuild the dashboard with `python src/build_dashboard.py`.
