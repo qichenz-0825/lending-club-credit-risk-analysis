@@ -53,3 +53,20 @@ WHERE issue_date BETWEEN '2014-01-01' AND '2015-12-31'
 CREATE OR REPLACE VIEW rejected AS
 SELECT *
 FROM '{data_dir}/rejected.parquet';
+
+-- -----------------------------------------------------------------------------
+-- applications: every application, approved or declined (29.9M rows)
+--   * approved: issue month + FICO (fico_range_low) from loans_clean
+--   * declined: application month + Risk_Score from rejected
+--   * approved is a constant flag (1 / 0), so AVG(approved) = approval rate
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW applications AS
+SELECT DATE_TRUNC('month', issue_date) AS app_month,
+       fico_range_low                  AS score,
+       1                               AS approved
+FROM loans_clean
+UNION ALL
+SELECT DATE_TRUNC('month', "Application Date"),
+       Risk_Score,
+       0
+FROM rejected;

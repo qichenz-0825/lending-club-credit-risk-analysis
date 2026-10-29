@@ -85,6 +85,35 @@ def main():
         FROM m WHERE period IS NOT NULL GROUP BY period ORDER BY period
     """)
 
+    data["bands"] = records(con, """
+        WITH labeled AS (
+            SELECT CASE WHEN app_month BETWEEN '2015-07-01' AND '2015-12-01' THEN 'H2-2015'
+                        WHEN app_month BETWEEN '2016-07-01' AND '2016-12-01' THEN 'H2-2016' END AS period,
+                   CASE WHEN score IS NULL THEN '0|No score' WHEN score < 600 THEN '1|<600'
+                        WHEN score < 660 THEN '2|600–659' WHEN score < 700 THEN '3|660–699'
+                        WHEN score < 750 THEN '4|700–749' ELSE '5|750+' END AS band,
+                   approved
+            FROM applications
+        )
+        SELECT period, band, COUNT(*) AS n_apps,
+               COUNT(*) * 1.0 / SUM(COUNT(*)) OVER (PARTITION BY period) AS share,
+               AVG(approved) AS approval_rate
+        FROM labeled WHERE period IS NOT NULL
+        GROUP BY period, band ORDER BY band, period
+    """)
+    for row in data["bands"]:
+        row["band"] = row["band"].split("|", 1)[1]
+    by = {(r["period"], r["band"]): r for r in data["bands"]}
+    bands = sorted({r["band"] for r in data["bands"]}, key=[r["band"] for r in data["bands"]].index)
+    s15 = {b: by[("H2-2015", b)]["share"] for b in bands}
+    s16 = {b: by[("H2-2016", b)]["share"] for b in bands}
+    r15 = {b: by[("H2-2015", b)]["approval_rate"] for b in bands}
+    r16 = {b: by[("H2-2016", b)]["approval_rate"] for b in bands}
+    a15 = sum(s15[b] * r15[b] for b in bands)
+    cf = sum(s16[b] * r15[b] for b in bands)
+    a16 = sum(s16[b] * r16[b] for b in bands)
+    data["mix_rate"] = {"before": a15, "after": a16, "mix": cf - a15, "rate": a16 - cf}
+
     data["grade"] = records(con, """
         SELECT grade, COUNT(*) AS n_loans, AVG(int_rate) / 100 AS int_rate, AVG(bad_flag) AS bad_rate,
                SUM(total_pymnt) / SUM(funded_amnt) - 1 AS realized_return

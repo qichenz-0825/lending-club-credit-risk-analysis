@@ -80,9 +80,21 @@
         <b>What drove it? H2-2016 vs. H2-2015</b>
         <table id="decomp"></table>
         <p class="note">Funded volume = applications × approval rate × average loan size.
-          Demand rose; the drop came from approvals. Still to test: policy tightening vs. weaker applicant mix vs. investor funding.</p>
+          Demand rose; the drop came from approvals.</p>
       </div>
     </div>
+    <h3 style="margin:22px 0 4px;font-size:16px">Did applicants get worse? Mix vs. rate</h3>
+    <div class="bluf" id="mixrate-bluf"></div>
+    <div class="controls" role="group" aria-label="Band view">
+      <button data-band="approval_rate" aria-pressed="true">Approval rate</button>
+      <button data-band="share" aria-pressed="false">Share of applicants</button>
+    </div>
+    <div class="grid2">
+      <div id="chart-bands" class="chart"></div>
+      <div id="chart-mixrate" class="chart"></div>
+    </div>
+    <p class="note">Approved loans use FICO at application; declined applications use Risk_Score (assumed comparable).
+      Below 660 nobody is approved (knockout rule); ~80% of declined applications have no score because they fail eligibility checks before a credit pull.</p>
   </section>
 
   <section>
@@ -96,7 +108,7 @@
   <section>
     <h2>4. Application-time risk drivers</h2>
     <div class="bluf"><b>Every variable carries signal, but none comes close to grade:</b>
-      single variables separate risk by 1.5–1.9×, versus ~7.8× for grade.</div>
+      single variables separate risk by 1.5–1.9×, versus ~7.8× for grade. Income's Information Value is 0.06 (weak), with a monotonic WOE.</div>
     <div class="controls">
       <label for="driver" style="align-self:center">Variable</label>
       <select id="driver"></select>
@@ -208,6 +220,49 @@ document.querySelectorAll("[data-view]").forEach(b => b.addEventListener("click"
     }).join("");
 })();
 
+// 2b. Score bands + mix/rate waterfall
+let bandMetric = "approval_rate";
+function drawBands() {
+  const rows = DATA.bands;
+  const bands = [...new Set(rows.map(r => r.band))];
+  const trace = (period, color) => {
+    const rs = bands.map(b => rows.find(r => r.band === b && r.period === period));
+    return { type: "bar", name: period, x: bands, y: rs.map(r => r[bandMetric]), marker: { color },
+             customdata: rs.map(r => r.n_apps),
+             hovertemplate: `${period}<br>%{x}: %{y:.1%}<br>Applications: %{customdata:,}<extra></extra>` };
+  };
+  Plotly.react("chart-bands", [trace("H2-2015", css("--c1")), trace("H2-2016", css("--c2"))],
+    layout({ barmode: "group", yaxis: { tickformat: ".0%", gridcolor: css("--border"),
+             title: bandMetric === "share" ? "Share of applicants" : "Approval rate" },
+             shapes: [{ type: "line", xref: "x", yref: "paper", x0: 2.5, x1: 2.5, y0: 0, y1: 1,
+                        line: { color: css("--muted"), dash: "dash" } }],
+             annotations: [{ x: 2.5, y: 1, xref: "x", yref: "paper", text: "660 cut-off", showarrow: false,
+                             xanchor: "left", yanchor: "top", font: { color: css("--muted") } }] }), CONFIG);
+}
+document.querySelectorAll("[data-band]").forEach(b => b.addEventListener("click", () => {
+  bandMetric = b.dataset.band;
+  document.querySelectorAll("[data-band]").forEach(o => o.setAttribute("aria-pressed", o === b));
+  drawBands();
+}));
+function drawMixRate() {
+  const m = DATA.mix_rate, total = m.after - m.before;
+  document.getElementById("mixrate-bluf").innerHTML =
+    `<b>No: ${pct(m.rate / total, 0)} of the ${Math.abs(total * 100).toFixed(2)} pp drop came from lower approval rates within the same score bands;
+     only ${pct(m.mix / total, 0)} from a weaker applicant mix.</b> Approval nearly halved in every band above 660, and fell most for 750+,
+     which points toward a funding constraint rather than credit policy.`;
+  Plotly.react("chart-mixrate", [{
+    type: "waterfall", orientation: "v", measure: ["absolute", "relative", "relative", "total"],
+    x: ["H2-2015", "Mix effect", "Rate effect", "H2-2016"],
+    y: [m.before, m.mix, m.rate, m.after],
+    text: [pct(m.before, 2), (m.mix * 100).toFixed(2) + " pp", (m.rate * 100).toFixed(2) + " pp", pct(m.after, 2)],
+    textposition: "outside", cliponaxis: false,
+    decreasing: { marker: { color: "#d0453a" } }, totals: { marker: { color: css("--c2") } },
+    increasing: { marker: { color: css("--c3") } }, connector: { line: { color: css("--border") } },
+    hoverinfo: "skip",
+  }], layout({ yaxis: { tickformat: ".0%", gridcolor: css("--border"), title: "Approval rate", range: [0, m.before * 1.25] },
+               showlegend: false }), CONFIG);
+}
+
 // 3. Grade risk vs return
 function drawGrade() {
   const g = DATA.grade;
@@ -246,7 +301,7 @@ function drawSeparation() {
 }
 sel.addEventListener("change", drawDriver);
 
-function drawAll() { drawYearly(); drawMonthly(); drawGrade(); drawDriver(); drawSeparation(); }
+function drawAll() { drawYearly(); drawMonthly(); drawBands(); drawMixRate(); drawGrade(); drawDriver(); drawSeparation(); }
 drawAll();
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawAll);
 </script>

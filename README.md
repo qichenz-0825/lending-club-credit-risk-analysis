@@ -17,13 +17,13 @@ Hover, toggle and filter every result in the browser.
 | 1 | **How risky is the book?** | On fully matured 2014–2015 36-month loans, **14.5%** went bad. Lending Club's grade **rank-orders risk well**: 5.4% (A) → 42.0% (G), a **7.8×** spread. |
 | 2 | **Does pricing cover the extra risk?** | **Losses are covered, but risk isn't paid for.** Every grade is profitable, yet realized 3-year return **peaks at 8.3% in grade B and falls to 2.2% in grade G**. B–C earn **1.8×** the return of E–G at **less than half** the bad rate. |
 | 3 | **How is the funnel evolving?** | Funded volume grew from **\$20M (2008) to \$7.9B (2018)**. The approval rate fell from **15.1% (2013) to 5.0% (2018)** because **applications tripled** (2015 → 2018) while approvals rose only 18%. |
-| 4 | **What happened in 2016?** | After a one-off spike in **March 2016 (\$949M)**, volume was **down year-over-year for 10 straight months** (Jul-2016 → Apr-2017). The headline **−43% MoM** in April is a **base effect** (YoY: −0.4%). H2-2016 vs. H2-2015: funded **−21.9%**, driven by the **approval rate (−45%)** while **applications rose 54%**. |
-| 5 | **Which applicant traits signal risk?** | Income, purpose, DTI, employment length and home ownership all carry signal, but each separates risk by only **1.5–1.9×**, against **7.8×** for grade. Missing employment length is a strong flag (21.1% bad rate). A multivariate model is needed. |
+| 4 | **What happened in 2016?** | After a one-off spike in **March 2016 (\$949M)**, volume was **down year-over-year for 10 straight months** (Jul-2016 → Apr-2017). The headline **−43% MoM** in April is a **base effect** (YoY: −0.4%). H2-2016 vs. H2-2015: funded **−21.9%**, driven by the **approval rate (−45%)** while **applications rose 54%**. A mix-rate decomposition shows **98% of the approval drop came from lower approval rates within the same credit score bands**, not from weaker applicants. |
+| 5 | **Which applicant traits signal risk?** | Income, purpose, DTI, employment length and home ownership all carry signal, but each separates risk by only **1.5–1.9×**, against **7.8×** for grade. Income's **Information Value is 0.06 (weak)** with a monotonic WOE. Missing employment length is a strong flag (21.1% bad rate). A multivariate model is needed. |
 
 ### Recommendations
 1. **Tighten approval or cap exposure in grades E–G** (4.6% of loans) and redirect volume to **B–C**, the best risk-adjusted segment. Don't simply raise E–G rates: higher prices worsen **adverse selection**.
 2. **Monitor volume year-over-year and against a baseline**, not month-over-month: quarter-start peaks and one-off spikes make MoM swings misleading.
-3. **Diagnose the 2016 approval-rate drop** before acting on it: separate policy tightening from a weaker applicant mix (compare approval rates within `Risk_Score` bands) and from investor funding constraints.
+3. **Investigate the 2016 approval-rate drop as a supply issue.** Weaker applicants explain only 2% of it; approval rates nearly halved in every score band above the 660 cut-off, and fell most for the best applicants (750+: 87% → 36%), which points to an investor funding constraint rather than credit policy.
 4. **Build an application-time PD model** (WOE/IV feature selection → logistic scorecard and gradient boosting) and use grade as the **benchmark** to beat.
 
 ---
@@ -57,6 +57,7 @@ Source: [Kaggle: All Lending Club loan data](https://www.kaggle.com/datasets/wor
 | Approval rate | Approved ÷ (approved + rejected applications) |
 | Realized return | `SUM(total_pymnt) / SUM(funded_amnt) − 1`: all cash collected (principal, interest, fees, recoveries) vs. all cash lent, 3-year total, before servicing and funding costs |
 | Funded volume | `SUM(funded_amnt)`: amount actually lent, not amount requested |
+| Information Value | `Σ (dist_good − dist_bad) × ln(dist_good / dist_bad)` across bins: < 0.02 useless, 0.02–0.1 weak, 0.1–0.3 medium, > 0.5 suspect leakage |
 
 **Data quality issues found and fixed**
 
@@ -115,7 +116,21 @@ Source: [Kaggle: All Lending Club loan data](https://www.kaggle.com/datasets/wor
 | Avg loan size | \$15,250 | \$14,161 | −7.1% |
 | **Funded** | \$3,675M | \$2,870M | **−21.9%** |
 
-Demand rose; the decline came from approvals. Whether that reflects **policy tightening**, a **weaker applicant mix** or an **investor funding constraint** is the next question.
+Demand rose; the decline came from approvals.
+
+**Did applicants get worse? Mix vs. rate by credit score band** (approved: FICO; declined: `Risk_Score`)
+
+![Approval rate by score band](images/approval_rate_by_score_band.png)
+
+| | H2-2015 | H2-2016 |
+|---|---:|---:|
+| Approval rate | 12.88% | 7.04% |
+| Share of applicants scoring 660+ | 15.2% | 15.0% |
+| Approval rate within 660–699 / 700–749 / 750+ | 84% / 86% / 87% | 47% / 49% / 36% |
+
+* Below 660 nobody is approved (a **knockout rule**). ~80% of declined applications have **no score**: they fail eligibility checks before a credit pull.
+* Decomposition of the **−5.84 pp** drop: **mix effect −0.12 pp (2%)**, **rate effect −5.73 pp (98%)**. The applicant-quality hypothesis is rejected.
+* The steepest drop is among the **best** applicants, unusual for a credit-policy change, which points toward the investor funding constraint after May 2016.
 
 → [notebook 04](Notebooks/04_volume_anomaly_2016.ipynb)
 
@@ -135,7 +150,7 @@ Demand rose; the decline came from approvals. Whether that reflects **policy tig
 * **DTI** contains impossible values (max 999 vs. 99th percentile 37.8), likely placeholders; binning absorbs them.
 * **Missing employment length** is the strongest single flag (21.1% vs. 14–15%): missing not at random, so it gets its own bin rather than being imputed.
 * Tiny categories (`wedding` 11 loans, `educational` 1, home ownership `ANY` 2) show 0% bad rates only by chance and must be merged.
-* The max/min ratio ignores bin sizes (purpose ranks high because of `small_business`, 0.9% of loans); **Information Value** is the next step.
+* The max/min ratio ignores bin sizes (purpose ranks high because of `small_business`, 0.9% of loans). **Information Value** weights every bin: income scores **IV = 0.06 (weak)**, with WOE rising monotonically from −0.37 (< \$40k) to +0.38 (≥ \$100k).
 * Counter-intuitive: mortgage holders default **less** than outright owners (11.8% vs. 15.4%). A plausible explanation is prior bank underwriting; this still needs testing.
 * **Feature rule:** only information available **at the decision point**. `total_pymnt`, `recoveries`, `last_pymnt_d` and `last_fico_range_*` are post-origination and would leak the outcome.
 
@@ -158,10 +173,11 @@ Demand rose; the decline came from approvals. Whether that reflects **policy tig
 - [x] Year-over-year view and driver decomposition of the 2016 slowdown
 - [x] Univariate application-time risk drivers (income, DTI, employment length, purpose, home ownership)
 - [x] Interactive results dashboard (GitHub Pages)
-- [ ] WOE / Information Value for all application-time variables
+- [x] Mix vs. rate decomposition of the 2016 approval-rate drop
+- [x] WOE / Information Value method (income)
+- [ ] Information Value for all application-time variables
 - [ ] PD model: logistic scorecard and XGBoost; KS, AUC, Gini, calibration, PSI
 - [ ] Cut-off strategy: approval rate vs. bad rate trade-off, expected loss (PD × LGD × EAD)
-- [ ] Mix vs. rate decomposition of the 2016 approval-rate drop (`Risk_Score` bands)
 
 ## Daily work log
 The day-by-day working notebooks, cleaned up, show how the analysis was built: exploration, dead ends, the bugs found and how they were fixed.
@@ -172,6 +188,7 @@ The day-by-day working notebooks, cleaned up, show how the analysis was built: e
 | 2 | [day2_joins_and_returns](Notebooks/worklog/day2_joins_and_returns.ipynb) | INNER vs. LEFT JOIN experiment, realized return by grade, data leakage |
 | 3 | [day3_trends_and_risk_drivers](Notebooks/worklog/day3_trends_and_risk_drivers.ipynb) | Grade segments, monthly trend + `LAG` window function, home ownership, income binning |
 | 4 | [day4_yoy_decomposition_and_drivers](Notebooks/worklog/day4_yoy_decomposition_and_drivers.ipynb) | YoY with `LAG(x, 12)`, volume decomposition, pandas profiling and binning (DTI, employment length, purpose) |
+| 5 | [day5_mix_rate_and_iv](Notebooks/worklog/day5_mix_rate_and_iv.ipynb) | `UNION ALL`, `PARTITION BY`, mix vs. rate decomposition, Simpson's paradox, WOE / IV |
 
 ---
 
@@ -179,7 +196,7 @@ The day-by-day working notebooks, cleaned up, show how the analysis was built: e
 ```
 ├── README.md                    ← this report
 ├── SQL/
-│   └── 00_create_views.sql      ← cleaning, cohort and target definition (single source of truth)
+│   └── 00_create_views.sql      ← cleaning, cohort, target definition, applications (single source of truth)
 ├── src/
 │   ├── lending_db.py            ← CSV → Parquet conversion + DuckDB connection with views
 │   ├── build_dashboard.py       ← exports results to the interactive dashboard
