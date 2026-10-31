@@ -7,6 +7,9 @@ Run from the project root:
 import json
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
+
 from lending_db import PROJECT_ROOT, get_connection
 
 OUT = PROJECT_ROOT / "docs" / "index.html"
@@ -20,6 +23,45 @@ def records(con, sql):
         if str(df[col].dtype).startswith("datetime"):
             df[col] = df[col].dt.strftime("%Y-%m")
     return json.loads(df.to_json(orient="records"))
+
+
+def calc_iv(df, bin_col):
+    """Information Value of one binned column (expects a 0/1/NULL `bad_flag`)."""
+    t = df.groupby(bin_col, observed=True, dropna=False)["bad_flag"].agg(n_bad="sum", n_total="count")
+    dist_good = (t["n_total"] - t["n_bad"]) / (t["n_total"] - t["n_bad"]).sum()
+    dist_bad = t["n_bad"] / t["n_bad"].sum()
+    return float(((dist_good - dist_bad) * np.log(dist_good / dist_bad)).sum())
+
+
+def feature_iv(con):
+    """IV for application-time features, the existing-model benchmark, and one leaky field."""
+    df = con.sql("""
+        SELECT bad_flag, fico_range_low, annual_inc, dti, revol_util, inq_last_6mths, delinq_2yrs,
+               loan_amnt, purpose, home_ownership, emp_length, verification_status,
+               grade, int_rate, last_fico_range_high
+        FROM cohort
+    """).df()
+    small = df["purpose"].value_counts().loc[lambda s: s < 300].index
+    df["purpose"] = df["purpose"].where(~df["purpose"].isin(small), "other")
+    df["home_ownership"] = df["home_ownership"].replace("ANY", "RENT")
+
+    groups = {
+        "application": ["fico_range_low", "annual_inc", "dti", "home_ownership", "inq_last_6mths",
+                        "verification_status", "purpose", "emp_length", "revol_util", "loan_amnt", "delinq_2yrs"],
+        "benchmark": ["grade", "int_rate"],
+        "leak": ["last_fico_range_high"],
+    }
+    out = []
+    for group, cols in groups.items():
+        for col in cols:
+            if col in ("inq_last_6mths", "delinq_2yrs"):
+                df["bin"] = df[col].clip(upper=3)
+            elif not pd.api.types.is_numeric_dtype(df[col]):
+                df["bin"] = df[col]
+            else:
+                df["bin"] = pd.qcut(df[col], q=5, duplicates="drop")
+            out.append({"feature": col, "group": group, "iv": calc_iv(df, "bin")})
+    return out
 
 
 def main():
@@ -153,6 +195,13 @@ def main():
             {"bad_rate": g["bad_rate"], "n_loans": g["n_loans"]} for g in data["grade"]]}.items()
     ]
     data["separation"].sort(key=lambda r: r["ratio"])
+
+    data["iv"] = feature_iv(con)
+
+    data["drift"] = records(con, """
+        SELECT grade, YEAR(issue_date) AS year, COUNT(*) AS n_loans, AVG(bad_flag) AS bad_rate
+        FROM cohort GROUP BY grade, year ORDER BY grade, year
+    """)
 
     OUT.parent.mkdir(exist_ok=True)
     html = TEMPLATE.read_text().replace("/*__DATA__*/null", json.dumps(data, separators=(",", ":")))

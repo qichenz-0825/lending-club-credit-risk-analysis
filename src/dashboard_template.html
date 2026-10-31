@@ -120,6 +120,23 @@
     <p class="note">Grey bars have fewer than 300 loans and are too small to trust; they are excluded from the separation ratio (highest ÷ lowest bin bad rate).</p>
   </section>
 
+  <section>
+    <h2>5. Feature selection for a PD model</h2>
+    <div class="bluf"><b>Only FICO at application is a medium-strength predictor (IV 0.13); seven other features are weak.</b>
+      The existing model's grade is strong (0.36) and serves as the benchmark; a post-loan FICO field scores 3.6, a textbook leak.</div>
+    <div class="controls" role="group" aria-label="Feature groups">
+      <button data-iv="application" aria-pressed="true">Application-time features</button>
+      <button data-iv="all" aria-pressed="false">+ benchmark &amp; leak</button>
+    </div>
+    <div class="grid2">
+      <div id="chart-iv" class="chart"></div>
+      <div id="chart-drift" class="chart"></div>
+    </div>
+    <p class="note">Information Value: &lt; 0.02 useless · 0.02–0.1 weak · 0.1–0.3 medium · 0.3–0.5 strong · &gt; 0.5 suspect leakage.
+      Right: 2015 had a better grade mix but higher bad rates within almost every grade (population drift), so models are validated out-of-time
+      (develop on Jan-2014–Jun-2015, test on Jul–Dec 2015).</p>
+  </section>
+
   <footer>Built with DuckDB, pandas and Plotly. Source: Kaggle "All Lending Club loan data".
     Bad = Charged Off or 31–120 days late; Good = Fully Paid; other statuses excluded.</footer>
 </main>
@@ -301,7 +318,45 @@ function drawSeparation() {
 }
 sel.addEventListener("change", drawDriver);
 
-function drawAll() { drawYearly(); drawMonthly(); drawBands(); drawMixRate(); drawGrade(); drawDriver(); drawSeparation(); }
+// 5. Feature IV + drift
+let ivView = "application";
+function drawIV() {
+  const rows = DATA.iv.filter(r => ivView === "all" || r.group === "application").sort((a, b) => a.iv - b.iv);
+  const color = { application: css("--c1"), benchmark: css("--c2"), leak: "#d0453a" };
+  const label = { application: "", benchmark: " (benchmark)", leak: " (leak)" };
+  const lines = [0.02, 0.1].concat(ivView === "all" ? [0.5] : []);
+  Plotly.react("chart-iv", [{
+    type: "bar", orientation: "h", y: rows.map(r => r.feature + label[r.group]), x: rows.map(r => r.iv),
+    marker: { color: rows.map(r => color[r.group]) },
+    text: rows.map(r => r.iv.toFixed(3)), textposition: "outside", cliponaxis: false,
+    hovertemplate: "%{y}<br>IV %{x:.4f}<extra></extra>",
+  }], layout({
+    xaxis: { title: "Information Value" + (ivView === "all" ? " (log scale)" : ""), type: ivView === "all" ? "log" : "linear",
+             gridcolor: css("--border") },
+    margin: { l: 210, r: 50, t: 16, b: 44 },
+    shapes: lines.map(x => ({ type: "line", xref: "x", yref: "paper", x0: x, x1: x, y0: 0, y1: 1,
+                              line: { color: css("--muted"), dash: "dash" } })),
+  }), CONFIG);
+}
+document.querySelectorAll("[data-iv]").forEach(b => b.addEventListener("click", () => {
+  ivView = b.dataset.iv;
+  document.querySelectorAll("[data-iv]").forEach(o => o.setAttribute("aria-pressed", o === b));
+  drawIV();
+}));
+function drawDrift() {
+  const d = DATA.drift, grades = [...new Set(d.map(r => r.grade))];
+  const trace = (year, c) => {
+    const rs = grades.map(g => d.find(r => r.grade === g && r.year === year));
+    return { type: "bar", name: String(year), x: grades, y: rs.map(r => r.bad_rate), marker: { color: c },
+             customdata: rs.map(r => r.n_loans),
+             hovertemplate: `${year} · grade %{x}<br>Bad rate %{y:.1%}<br>Loans %{customdata:,}<extra></extra>` };
+  };
+  Plotly.react("chart-drift", [trace(2014, css("--c1")), trace(2015, css("--c2"))],
+    layout({ barmode: "group", yaxis: { tickformat: ".0%", title: "Bad rate", gridcolor: css("--border") },
+             xaxis: { title: "Grade" } }), CONFIG);
+}
+
+function drawAll() { drawYearly(); drawMonthly(); drawBands(); drawMixRate(); drawGrade(); drawDriver(); drawSeparation(); drawIV(); drawDrift(); }
 drawAll();
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawAll);
 </script>

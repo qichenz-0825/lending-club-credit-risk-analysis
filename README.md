@@ -19,12 +19,13 @@ Hover, toggle and filter every result in the browser.
 | 3 | **How is the funnel evolving?** | Funded volume grew from **\$20M (2008) to \$7.9B (2018)**. The approval rate fell from **15.1% (2013) to 5.0% (2018)** because **applications tripled** (2015 → 2018) while approvals rose only 18%. |
 | 4 | **What happened in 2016?** | After a one-off spike in **March 2016 (\$949M)**, volume was **down year-over-year for 10 straight months** (Jul-2016 → Apr-2017). The headline **−43% MoM** in April is a **base effect** (YoY: −0.4%). H2-2016 vs. H2-2015: funded **−21.9%**, driven by the **approval rate (−45%)** while **applications rose 54%**. A mix-rate decomposition shows **98% of the approval drop came from lower approval rates within the same credit score bands**, not from weaker applicants. |
 | 5 | **Which applicant traits signal risk?** | Income, purpose, DTI, employment length and home ownership all carry signal, but each separates risk by only **1.5–1.9×**, against **7.8×** for grade. Income's **Information Value is 0.06 (weak)** with a monotonic WOE. Missing employment length is a strong flag (21.1% bad rate). A multivariate model is needed. |
+| 6 | **Which features go into a PD model?** | Ranked by Information Value, **only FICO at application is medium-strength (0.13)**; 7 features are weak and 3 fall below 0.02. Grade (0.36) is the benchmark to beat. A post-loan FICO field scores **3.6**, a textbook **leak**. Validation is **out-of-time**, because 2015 shows population drift (better grade mix, higher bad rates within grades). |
 
 ### Recommendations
 1. **Tighten approval or cap exposure in grades E–G** (4.6% of loans) and redirect volume to **B–C**, the best risk-adjusted segment. Don't simply raise E–G rates: higher prices worsen **adverse selection**.
 2. **Monitor volume year-over-year and against a baseline**, not month-over-month: quarter-start peaks and one-off spikes make MoM swings misleading.
 3. **Investigate the 2016 approval-rate drop as a supply issue.** Weaker applicants explain only 2% of it; approval rates nearly halved in every score band above the 660 cut-off, and fell most for the best applicants (750+: 87% → 36%), which points to an investor funding constraint rather than credit policy.
-4. **Build an application-time PD model** (WOE/IV feature selection → logistic scorecard and gradient boosting) and use grade as the **benchmark** to beat.
+4. **Build an application-time PD model** on the 8 shortlisted features (WOE/IV feature selection → logistic scorecard and gradient boosting) and use grade as the **benchmark** to beat.
 
 ---
 
@@ -48,6 +49,8 @@ Source: [Kaggle: All Lending Club loan data](https://www.kaggle.com/datasets/wor
 | Charged Off, Late (31–120 days) | 1 |
 | Fully Paid | 0 |
 | Current, In Grace Period, Late (16–30 days) | NULL: indeterminate, excluded from rates (86 loans) |
+
+**Validation design.** Development sample: loans issued Jan-2014 to Jun-2015 (64%, to be split 80/20 into train / validation); **out-of-time** sample: Jul–Dec 2015 (36%). A random split would hide population drift.
 
 **Metric definitions**
 
@@ -156,6 +159,24 @@ Demand rose; the decline came from approvals.
 
 → [notebook 05](Notebooks/05_application_risk_drivers.ipynb)
 
+### 5. Feature selection: Information Value, leakage and drift
+![Information Value by feature](images/iv_by_feature.png)
+
+| Group | Features | IV |
+|---|---|---|
+| Medium (0.1–0.3) | FICO at application | 0.135 |
+| Weak (0.02–0.1) | income, DTI, home ownership, inquiries, verification status, purpose, employment length | 0.021–0.062 |
+| Useless (< 0.02) | revolving utilization, loan amount, past delinquencies | 0.003–0.013 |
+| Benchmark (existing model output) | `grade`, `int_rate` | 0.36, 0.35 |
+| **Leak** (post-origination) | `last_fico_range_high` | **3.63** |
+
+* **Availability screen first:** only fields known at the approval decision. `int_rate` and `installment` are known at signing but derive from grade, so they are benchmark-only for an approval model.
+* **Binning matters:** inquiries binned by count (0/1/2/3+) instead of quantiles: IV 0.028 → 0.043. Tiny categories (`wedding`, `ANY`) gave an **infinite** IV until merged.
+* **Leak in the data:** every borrower had FICO ≥ 660 at application, yet the lowest `last_fico_range_high` bin (< 609) has a 57% bad rate: scores fell *because of* default.
+* **Population drift:** 2015 had more grade A and fewer D–G loans, yet higher bad rates within almost every grade (F: 29.5% → 42.5%). Hence the out-of-time validation design.
+
+→ [notebook 06](Notebooks/06_feature_selection_and_split.ipynb)
+
 ---
 
 ## Limitations
@@ -175,7 +196,8 @@ Demand rose; the decline came from approvals.
 - [x] Interactive results dashboard (GitHub Pages)
 - [x] Mix vs. rate decomposition of the 2016 approval-rate drop
 - [x] WOE / Information Value method (income)
-- [ ] Information Value for all application-time variables
+- [x] Information Value for all application-time features, leakage check, out-of-time sample design
+- [ ] Correlation check among shortlisted features
 - [ ] PD model: logistic scorecard and XGBoost; KS, AUC, Gini, calibration, PSI
 - [ ] Cut-off strategy: approval rate vs. bad rate trade-off, expected loss (PD × LGD × EAD)
 
@@ -189,6 +211,7 @@ The day-by-day working notebooks, cleaned up, show how the analysis was built: e
 | 3 | [day3_trends_and_risk_drivers](Notebooks/worklog/day3_trends_and_risk_drivers.ipynb) | Grade segments, monthly trend + `LAG` window function, home ownership, income binning |
 | 4 | [day4_yoy_decomposition_and_drivers](Notebooks/worklog/day4_yoy_decomposition_and_drivers.ipynb) | YoY with `LAG(x, 12)`, volume decomposition, pandas profiling and binning (DTI, employment length, purpose) |
 | 5 | [day5_mix_rate_and_iv](Notebooks/worklog/day5_mix_rate_and_iv.ipynb) | `UNION ALL`, `PARTITION BY`, mix vs. rate decomposition, Simpson's paradox, WOE / IV |
+| 6 | [day6_iv_ranking_and_oot_split](Notebooks/worklog/day6_iv_ranking_and_oot_split.ipynb) | First Python function, `for` / `if`, `pd.qcut`, IV ranking, leakage check, out-of-time split |
 
 ---
 
@@ -208,6 +231,7 @@ The day-by-day working notebooks, cleaned up, show how the analysis was built: e
 │   ├── 03_risk_return_by_grade.ipynb
 │   ├── 04_volume_anomaly_2016.ipynb
 │   ├── 05_application_risk_drivers.ipynb
+│   ├── 06_feature_selection_and_split.ipynb
 │   └── worklog/                 ← cleaned day-by-day working notebooks
 ├── images/                      ← charts used in this README
 └── Data/                        ← raw data (not tracked; see Data/README.md)
