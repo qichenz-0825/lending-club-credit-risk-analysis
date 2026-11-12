@@ -20,6 +20,8 @@ Hover, toggle and filter every result in the browser.
 | 4 | **What happened in 2016?** | After a one-off spike in **March 2016 (\$949M)**, volume was **down year-over-year for 10 straight months** (Jul-2016 → Apr-2017). The headline **−43% MoM** in April is a **base effect** (YoY: −0.4%). H2-2016 vs. H2-2015: funded **−21.9%**, driven by the **approval rate (−45%)** while **applications rose 54%**. A mix-rate decomposition shows **98% of the approval drop came from lower approval rates within the same credit score bands**, not from weaker applicants. |
 | 5 | **Which applicant traits signal risk?** | Income, purpose, DTI, employment length and home ownership all carry signal, but each separates risk by only **1.5–1.9×**, against **7.8×** for grade. Income's **Information Value is 0.06 (weak)** with a monotonic WOE. Missing employment length is a strong flag (21.1% bad rate). A multivariate model is needed. |
 | 6 | **Which features go into a PD model?** | Ranked by Information Value, **only FICO at application is medium-strength (0.13)**; 7 features are weak and 3 fall below 0.02. Grade (0.36) is the benchmark to beat. A post-loan FICO field scores **3.6**, a textbook **leak**. Validation is **out-of-time**, because 2015 shows population drift (better grade mix, higher bad rates within grades). |
+| 7 | **Are the features model-ready?** | Yes: no pair has \|ρ\| > 0.7 (max 0.49, income vs. loan amount), and all 8 are **WOE-transformed** with no missing values. |
+| 8 | **How big must a pricing A/B test be?** | Detecting a 30% → 32% take-up lift from a 1-point APR cut needs **~8,400 applicants per group** (~2 months at 10k offers/month); halving the lift quadruples the sample. Guardrails: early delinquency and risk-adjusted return. |
 
 ### Recommendations
 1. **Tighten approval or cap exposure in grades E–G** (4.6% of loans) and redirect volume to **B–C**, the best risk-adjusted segment. Don't simply raise E–G rates: higher prices worsen **adverse selection**.
@@ -177,6 +179,22 @@ Demand rose; the decline came from approvals.
 
 → [notebook 06](Notebooks/06_feature_selection_and_split.ipynb)
 
+### 6. Model preparation and A/B test design
+<img src="images/feature_correlation.png" width="48%"> <img src="images/ab_sample_size.png" width="50%">
+
+* **Multicollinearity:** Spearman correlations (robust to outliers such as DTI = 999) show no pair above 0.7. FICO vs. revolving utilization (−0.35) explains utilization's low IV: it is part of the FICO formula.
+* **WOE transformation:** each loan's bin is replaced by the bin's WOE, giving numeric, outlier-proof features that are linear in log-odds. Bins under 300 loans are merged (the 2-loan missing-DTI bin had a WOE of −1.78). The model-ready table reproduces every IV.
+* **A/B design for a grade-B price cut:** H₀ no change in take-up; random 50/50 assignment at the offer; take-up as the primary metric; early delinquency and risk-adjusted return as guardrails (a cheaper price can attract riskier, rate-shopping borrowers); decision rule fixed in advance; fair-lending review.
+
+| Detectable lift | Per group | Months at 10k offers |
+|---:|---:|---:|
+| 1 pp | 33,234 | 6.6 |
+| **2 pp** | **8,381** | **1.7** |
+| 3 pp | 3,756 | 0.8 |
+| 5 pp | 1,373 | 0.3 |
+
+Try other assumptions in the dashboard's **A/B test planner**. → [notebook 07](Notebooks/07_correlation_woe_and_ab_test.ipynb)
+
 ---
 
 ## Limitations
@@ -197,7 +215,8 @@ Demand rose; the decline came from approvals.
 - [x] Mix vs. rate decomposition of the 2016 approval-rate drop
 - [x] WOE / Information Value method (income)
 - [x] Information Value for all application-time features, leakage check, out-of-time sample design
-- [ ] Correlation check among shortlisted features
+- [x] Correlation check and WOE transformation of the shortlisted features
+- [x] A/B test design and sample-size planner for a pricing change
 - [ ] PD model: logistic scorecard and XGBoost; KS, AUC, Gini, calibration, PSI
 - [ ] Cut-off strategy: approval rate vs. bad rate trade-off, expected loss (PD × LGD × EAD)
 
@@ -212,6 +231,7 @@ The day-by-day working notebooks, cleaned up, show how the analysis was built: e
 | 4 | [day4_yoy_decomposition_and_drivers](Notebooks/worklog/day4_yoy_decomposition_and_drivers.ipynb) | YoY with `LAG(x, 12)`, volume decomposition, pandas profiling and binning (DTI, employment length, purpose) |
 | 5 | [day5_mix_rate_and_iv](Notebooks/worklog/day5_mix_rate_and_iv.ipynb) | `UNION ALL`, `PARTITION BY`, mix vs. rate decomposition, Simpson's paradox, WOE / IV |
 | 6 | [day6_iv_ranking_and_oot_split](Notebooks/worklog/day6_iv_ranking_and_oot_split.ipynb) | First Python function, `for` / `if`, `pd.qcut`, IV ranking, leakage check, out-of-time split |
+| 7 | [day7_correlation_woe_ab_test](Notebooks/worklog/day7_correlation_woe_ab_test.ipynb) | Spearman correlation heatmap, WOE transformation with `.map()`, A/B test sample size |
 
 ---
 
@@ -232,6 +252,7 @@ The day-by-day working notebooks, cleaned up, show how the analysis was built: e
 │   ├── 04_volume_anomaly_2016.ipynb
 │   ├── 05_application_risk_drivers.ipynb
 │   ├── 06_feature_selection_and_split.ipynb
+│   ├── 07_correlation_woe_and_ab_test.ipynb
 │   └── worklog/                 ← cleaned day-by-day working notebooks
 ├── images/                      ← charts used in this README
 └── Data/                        ← raw data (not tracked; see Data/README.md)

@@ -45,6 +45,11 @@
   .grid2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; align-items: start; }
   @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } .chart { height: 340px; } }
   footer { color: var(--muted); font-size: 13px; margin-top: 28px; }
+  .ab-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 16px; margin: 8px 0 4px; }
+  .ab-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  .ab-grid input, .ab-grid select { font: inherit; font-size: 15px; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; width: 100%; }
+  .ab-grid span { display: flex; align-items: center; gap: 6px; color: var(--text); }
 </style>
 </head>
 <body>
@@ -135,6 +140,25 @@
     <p class="note">Information Value: &lt; 0.02 useless · 0.02–0.1 weak · 0.1–0.3 medium · 0.3–0.5 strong · &gt; 0.5 suspect leakage.
       Right: 2015 had a better grade mix but higher bad rates within almost every grade (population drift), so models are validated out-of-time
       (develop on Jan-2014–Jun-2015, test on Jul–Dec 2015).</p>
+  </section>
+
+  <section>
+    <h2>6. A/B test planner: pricing change</h2>
+    <div class="bluf"><b>Detecting a 30% → 32% take-up lift needs about 8,400 applicants per group</b>, roughly two months at 10,000 offers a month.
+      Halving the detectable lift quadruples the sample. Early delinquency and risk-adjusted return are the guardrails.</div>
+    <div class="ab-grid">
+      <label>Baseline take-up <span><input id="ab-p1" type="number" min="1" max="95" step="1" value="30"> %</span></label>
+      <label>Minimum detectable lift <span><input id="ab-mde" type="number" min="0.2" max="20" step="0.1" value="2"> pp</span></label>
+      <label>Significance (two-sided)
+        <select id="ab-alpha"><option value="1.645">10%</option><option value="1.96" selected>5%</option><option value="2.576">1%</option></select></label>
+      <label>Power
+        <select id="ab-power"><option value="0.84" selected>80%</option><option value="1.282">90%</option></select></label>
+      <label>Eligible offers per month <span><input id="ab-volume" type="number" min="100" step="500" value="10000"></span></label>
+    </div>
+    <div class="kpis" id="ab-out"></div>
+    <div id="chart-ab" class="chart" style="height:340px"></div>
+    <p class="note">n per group = (z<sub>α/2</sub> + z<sub>β</sub>)² · [p₁(1−p₁) + p₂(1−p₂)] / (p₂ − p₁)². Take-up can be read after the sample fills;
+      delinquency guardrails need six months or more of performance.</p>
   </section>
 
   <footer>Built with DuckDB, pandas and Plotly. Source: Kaggle "All Lending Club loan data".
@@ -356,7 +380,41 @@ function drawDrift() {
              xaxis: { title: "Grade" } }), CONFIG);
 }
 
-function drawAll() { drawYearly(); drawMonthly(); drawBands(); drawMixRate(); drawGrade(); drawDriver(); drawSeparation(); drawIV(); drawDrift(); }
+// 6. A/B sample-size planner
+function abN(p1, p2, za, zb) {
+  return Math.ceil((za + zb) ** 2 * (p1 * (1 - p1) + p2 * (1 - p2)) / (p2 - p1) ** 2);
+}
+function drawAB() {
+  const val = id => parseFloat(document.getElementById(id).value);
+  const p1 = val("ab-p1") / 100, mde = val("ab-mde") / 100;
+  const za = val("ab-alpha"), zb = val("ab-power"), vol = val("ab-volume");
+  const out = document.getElementById("ab-out");
+  if (!(p1 > 0 && p1 < 1 && mde > 0 && p1 + mde < 1 && vol > 0)) {
+    out.innerHTML = '<div class="kpi"><div class="l">Enter a baseline between 1% and 95% and a lift that keeps the target below 100%.</div></div>';
+    return;
+  }
+  const n = abN(p1, p1 + mde, za, zb), months = 2 * n / vol;
+  out.innerHTML = [
+    [fmt(n), "applicants per group"],
+    [fmt(2 * n), "total offers"],
+    [months < 1 ? (months * 4.35).toFixed(1) + " wks" : months.toFixed(1) + " mo", "to fill the sample"],
+    [pct(p1, 0) + " → " + pct(p1 + mde, 1), "take-up being tested"],
+  ].map(([v, l]) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+  const xs = [], ys = [];
+  for (let m = 0.002; m <= Math.max(0.06, mde * 2) && p1 + m < 1; m += 0.001) { xs.push(m * 100); ys.push(abN(p1, p1 + m, za, zb)); }
+  Plotly.react("chart-ab", [
+    { type: "scatter", mode: "lines", x: xs, y: ys, line: { color: css("--c1"), width: 2.5 },
+      hovertemplate: "Lift %{x:.1f} pp<br>%{y:,} per group<extra></extra>" },
+    { type: "scatter", mode: "markers", x: [mde * 100], y: [n], marker: { color: css("--c2"), size: 12 },
+      hovertemplate: "Your test<br>Lift %{x:.1f} pp<br>%{y:,} per group<extra></extra>" },
+  ], layout({ showlegend: false,
+              xaxis: { title: "Minimum detectable lift (pp)", gridcolor: css("--border") },
+              yaxis: { title: "Applicants per group", type: "log", gridcolor: css("--border") } }), CONFIG);
+}
+["ab-p1", "ab-mde", "ab-alpha", "ab-power", "ab-volume"].forEach(id =>
+  document.getElementById(id).addEventListener("input", drawAB));
+
+function drawAll() { drawYearly(); drawMonthly(); drawBands(); drawMixRate(); drawGrade(); drawDriver(); drawSeparation(); drawIV(); drawDrift(); drawAB(); }
 drawAll();
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawAll);
 </script>
