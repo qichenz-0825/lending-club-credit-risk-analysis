@@ -64,6 +64,53 @@ def feature_iv(con):
     return out
 
 
+def pd_model(con):
+    """Fit the WOE logistic regression (notebook 08) and return metrics, ROC points and calibration."""
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import roc_auc_score, roc_curve
+    from sklearn.model_selection import train_test_split
+
+    from lending_db import DATA_DIR
+
+    model = con.sql(f"SELECT * FROM '{DATA_DIR / 'model_woe.parquet'}'").df()
+    model = model[model["bad_flag"].notna()]
+    woe_cols = [c for c in model.columns if c.endswith("_woe")]
+    dev = model[model["issue_date"] < "2015-07-01"]
+    oot = model[model["issue_date"] >= "2015-07-01"]
+    train, val = train_test_split(dev, test_size=0.2, random_state=42, stratify=dev["bad_flag"])
+    lr = LogisticRegression(max_iter=1000).fit(train[woe_cols], train["bad_flag"])
+
+    def ks(y, p):
+        fpr, tpr, _ = roc_curve(y, p)
+        return float((tpr - fpr).max())
+
+    metrics = []
+    for name, d in [("Train", train), ("Validation", val), ("Out-of-time", oot)]:
+        p = lr.predict_proba(d[woe_cols])[:, 1]
+        auc = roc_auc_score(d["bad_flag"], p)
+        metrics.append({"sample": name, "auc": auc, "gini": 2 * auc - 1, "ks": ks(d["bad_flag"], p),
+                        "avg_pd": float(p.mean()), "bad_rate": float(d["bad_flag"].mean())})
+
+    grade = con.sql("SELECT grade, bad_flag FROM cohort WHERE issue_date >= '2015-07-01' AND bad_flag IS NOT NULL").df()
+    g_score = grade["grade"].map({g: i for i, g in enumerate("ABCDEFG")})
+    auc_g = roc_auc_score(grade["bad_flag"], g_score)
+    metrics.append({"sample": "Grade (benchmark, OOT)", "auc": auc_g, "gini": 2 * auc_g - 1,
+                    "ks": ks(grade["bad_flag"], g_score), "avg_pd": None, "bad_rate": float(grade["bad_flag"].mean())})
+
+    p_oot = lr.predict_proba(oot[woe_cols])[:, 1]
+    roc = {}
+    for name, y, s in [("model", oot["bad_flag"], p_oot), ("grade", grade["bad_flag"], g_score)]:
+        fpr, tpr, _ = roc_curve(y, s)
+        idx = np.unique(np.linspace(0, len(fpr) - 1, min(len(fpr), 200)).astype(int))
+        roc[name] = {"fpr": fpr[idx].round(4).tolist(), "tpr": tpr[idx].round(4).tolist()}
+
+    cal = pd.DataFrame({"pd": p_oot, "bad": oot["bad_flag"].to_numpy()})
+    cal["decile"] = pd.qcut(cal["pd"], 10, labels=False) + 1
+    by = cal.groupby("decile").agg(predicted=("pd", "mean"), actual=("bad", "mean")).reset_index()
+    coefs = [{"feature": c.removesuffix("_woe"), "coef": float(v)} for c, v in zip(woe_cols, lr.coef_[0])]
+    return {"metrics": metrics, "roc": roc, "calibration": json.loads(by.to_json(orient="records")), "coefs": coefs}
+
+
 def main():
     con = get_connection()
     data = {}
@@ -197,6 +244,7 @@ def main():
     data["separation"].sort(key=lambda r: r["ratio"])
 
     data["iv"] = feature_iv(con)
+    data["model"] = pd_model(con)
 
     data["drift"] = records(con, """
         SELECT grade, YEAR(issue_date) AS year, COUNT(*) AS n_loans, AVG(bad_flag) AS bad_rate

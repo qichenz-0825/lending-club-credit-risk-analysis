@@ -1,7 +1,7 @@
 # Consumer Lending Portfolio Analysis: Growth, Risk & Return
 
 **Lending Club, 2007–2018 · 2.26M funded loans · 27.6M declined applications**
-SQL (DuckDB) · Python (pandas, matplotlib, Plotly) · Jupyter
+SQL (DuckDB) · Python (pandas, scikit-learn, matplotlib, Plotly) · Jupyter
 
 ### 📊 [Interactive dashboard →](https://qichenz-0825.github.io/lending-club-credit-risk-analysis/)
 Hover, toggle and filter every result in the browser.
@@ -22,6 +22,7 @@ Hover, toggle and filter every result in the browser.
 | 6 | **Which features go into a PD model?** | Ranked by Information Value, **only FICO at application is medium-strength (0.13)**; 7 features are weak and 3 fall below 0.02. Grade (0.36) is the benchmark to beat. A post-loan FICO field scores **3.6**, a textbook **leak**. Validation is **out-of-time**, because 2015 shows population drift (better grade mix, higher bad rates within grades). |
 | 7 | **Are the features model-ready?** | Yes: no pair has \|ρ\| > 0.7 (max 0.49, income vs. loan amount), and all 8 are **WOE-transformed** with no missing values. |
 | 8 | **How big must a pricing A/B test be?** | Detecting a 30% → 32% take-up lift from a 1-point APR cut needs **~8,400 applicants per group** (~2 months at 10k offers/month); halving the lift quadruples the sample. Guardrails: early delinquency and risk-adjusted return. |
+| 9 | **How good is a simple PD model?** | A WOE logistic regression on 8 features scores **out-of-time AUC 0.655 / Gini 0.31 / KS 0.22**, about **90% of grade's Gini (0.34)**, with no overfitting. Discrimination holds out of time but **calibration drifts** (predicted 14.2% vs. actual 14.7%), so the intercept needs recalibrating. |
 
 ### Recommendations
 1. **Tighten approval or cap exposure in grades E–G** (4.6% of loans) and redirect volume to **B–C**, the best risk-adjusted segment. Don't simply raise E–G rates: higher prices worsen **adverse selection**.
@@ -195,6 +196,23 @@ Demand rose; the decline came from approvals.
 
 Try other assumptions in the dashboard's **A/B test planner**. → [notebook 07](Notebooks/07_correlation_woe_and_ab_test.ipynb)
 
+### 7. PD model: WOE logistic regression vs. LendingClub's grade
+<img src="images/roc_oot.png" width="42%"> <img src="images/calibration_oot.png" width="56%">
+
+| Sample | AUC | Gini | KS | Avg PD | Bad rate |
+|---|---:|---:|---:|---:|---:|
+| Train | 0.649 | 0.298 | 0.215 | 14.3% | 14.3% |
+| Validation | 0.647 | 0.294 | 0.212 | 14.3% | 14.3% |
+| **Out-of-time** | **0.655** | **0.310** | **0.222** | **14.2%** | **14.7%** |
+| Grade (benchmark, OOT) | 0.670 | 0.340 | 0.266 | – | 14.7% |
+
+* **Coefficients:** all eight negative, as required with WOE = ln(good share / bad share); the intercept implies a 14.2% PD for an "average on everything" borrower, equal to the portfolio bad rate.
+* **No overfitting:** train and validation AUC differ by 0.002.
+* **Discrimination vs. calibration:** the ranking holds out of time, but the model under-predicts by ~0.6 pp (most visible in deciles 4–8), consistent with the 2015 population drift. Remedy: recalibrate the intercept on recent vintages rather than rebuild.
+* **Benchmark:** grade uses full bureau and platform data; with eight public application fields the model reaches ≈ 91% of its Gini. Next: more bureau features and a gradient-boosting challenger.
+
+→ [notebook 08](Notebooks/08_pd_model_logistic_regression.ipynb)
+
 ---
 
 ## Limitations
@@ -217,7 +235,8 @@ Try other assumptions in the dashboard's **A/B test planner**. → [notebook 07]
 - [x] Information Value for all application-time features, leakage check, out-of-time sample design
 - [x] Correlation check and WOE transformation of the shortlisted features
 - [x] A/B test design and sample-size planner for a pricing change
-- [ ] PD model: logistic scorecard and XGBoost; KS, AUC, Gini, calibration, PSI
+- [x] PD model: WOE logistic regression; AUC, Gini, KS, calibration; benchmark vs. grade
+- [ ] Challenger model (gradient boosting), scorecard points, PSI monitoring
 - [ ] Cut-off strategy: approval rate vs. bad rate trade-off, expected loss (PD × LGD × EAD)
 
 ## Daily work log
@@ -232,6 +251,7 @@ The day-by-day working notebooks, cleaned up, show how the analysis was built: e
 | 5 | [day5_mix_rate_and_iv](Notebooks/worklog/day5_mix_rate_and_iv.ipynb) | `UNION ALL`, `PARTITION BY`, mix vs. rate decomposition, Simpson's paradox, WOE / IV |
 | 6 | [day6_iv_ranking_and_oot_split](Notebooks/worklog/day6_iv_ranking_and_oot_split.ipynb) | First Python function, `for` / `if`, `pd.qcut`, IV ranking, leakage check, out-of-time split |
 | 7 | [day7_correlation_woe_ab_test](Notebooks/worklog/day7_correlation_woe_ab_test.ipynb) | Spearman correlation heatmap, WOE transformation with `.map()`, A/B test sample size |
+| 8 | [day8_first_pd_model](Notebooks/worklog/day8_first_pd_model.ipynb) | scikit-learn, `train_test_split`, logistic regression, AUC / Gini / KS, discrimination vs. calibration |
 
 ---
 
@@ -253,6 +273,7 @@ The day-by-day working notebooks, cleaned up, show how the analysis was built: e
 │   ├── 05_application_risk_drivers.ipynb
 │   ├── 06_feature_selection_and_split.ipynb
 │   ├── 07_correlation_woe_and_ab_test.ipynb
+│   ├── 08_pd_model_logistic_regression.ipynb
 │   └── worklog/                 ← cleaned day-by-day working notebooks
 ├── images/                      ← charts used in this README
 └── Data/                        ← raw data (not tracked; see Data/README.md)

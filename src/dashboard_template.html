@@ -143,7 +143,23 @@
   </section>
 
   <section>
-    <h2>6. A/B test planner: pricing change</h2>
+    <h2>6. PD model: WOE logistic regression</h2>
+    <div class="bluf"><b>With eight application-time features, the model reaches about 90% of the Gini of LendingClub's grade and holds up out of time.</b>
+      No overfitting; calibration drifted slightly (predicted 14.2% vs. actual 14.7% out of time), consistent with 2015 population drift.</div>
+    <table id="model-metrics"></table>
+    <div class="controls" role="group" aria-label="Model view" style="margin-top:14px">
+      <button data-mv="roc" aria-pressed="true">ROC curve vs. grade</button>
+      <button data-mv="cal" aria-pressed="false">Calibration by decile</button>
+      <button data-mv="coef" aria-pressed="false">Coefficients</button>
+    </div>
+    <div id="chart-model" class="chart"></div>
+    <p class="note">Train / validation: Jan-2014–Jun-2015 (80/20, stratified). Out-of-time: Jul–Dec 2015. AUC = probability a random bad borrower
+      gets a higher PD than a random good one; Gini = 2·AUC − 1; KS = largest gap between cumulative bad and good shares.
+      All coefficients are negative, as required when WOE = ln(good share / bad share).</p>
+  </section>
+
+  <section>
+    <h2>7. A/B test planner: pricing change</h2>
     <div class="bluf"><b>Detecting a 30% → 32% take-up lift needs about 8,400 applicants per group</b>, roughly two months at 10,000 offers a month.
       Halving the detectable lift quadruples the sample. Early delinquency and risk-adjusted return are the guardrails.</div>
     <div class="ab-grid">
@@ -380,6 +396,55 @@ function drawDrift() {
              xaxis: { title: "Grade" } }), CONFIG);
 }
 
+// 6b. PD model
+(function () {
+  const rows = DATA.model.metrics;
+  document.getElementById("model-metrics").innerHTML =
+    "<tr><th>Sample</th><th>AUC</th><th>Gini</th><th>KS</th><th>Avg PD</th><th>Bad rate</th></tr>" +
+    rows.map(r => `<tr><td>${r.sample}</td><td>${r.auc.toFixed(3)}</td><td>${r.gini.toFixed(3)}</td><td>${r.ks.toFixed(3)}</td>
+                   <td>${r.avg_pd == null ? "–" : pct(r.avg_pd)}</td><td>${pct(r.bad_rate)}</td></tr>`).join("");
+})();
+let modelView = "roc";
+function drawModel() {
+  const m = DATA.model;
+  let traces, lay;
+  if (modelView === "roc") {
+    const auc = s => DATA.model.metrics.find(r => r.sample.startsWith(s)).auc.toFixed(3);
+    traces = [
+      { type: "scatter", mode: "lines", name: `WOE model (AUC ${auc("Out-of-time")})`, x: m.roc.model.fpr, y: m.roc.model.tpr,
+        line: { color: css("--c1"), width: 2.5 }, hovertemplate: "Goods flagged %{x:.0%}<br>Bads flagged %{y:.0%}<extra></extra>" },
+      { type: "scatter", mode: "lines+markers", name: `Grade (AUC ${auc("Grade")})`, x: m.roc.grade.fpr, y: m.roc.grade.tpr,
+        line: { color: css("--c2"), width: 2.5 }, hovertemplate: "Goods flagged %{x:.0%}<br>Bads flagged %{y:.0%}<extra></extra>" },
+      { type: "scatter", mode: "lines", name: "Random", x: [0, 1], y: [0, 1], line: { color: css("--muted"), dash: "dash" }, hoverinfo: "skip" },
+    ];
+    lay = layout({ xaxis: { title: "Share of good borrowers flagged", tickformat: ".0%", gridcolor: css("--border") },
+                   yaxis: { title: "Share of bad borrowers flagged", tickformat: ".0%", gridcolor: css("--border") } });
+  } else if (modelView === "cal") {
+    const c = m.calibration;
+    traces = [
+      { type: "scatter", mode: "lines+markers", name: "Predicted PD", x: c.map(r => r.decile), y: c.map(r => r.predicted),
+        line: { color: css("--c1"), width: 2.5 }, hovertemplate: "Decile %{x}<br>Predicted %{y:.1%}<extra></extra>" },
+      { type: "scatter", mode: "lines+markers", name: "Actual bad rate", x: c.map(r => r.decile), y: c.map(r => r.actual),
+        line: { color: css("--c2"), width: 2.5 }, hovertemplate: "Decile %{x}<br>Actual %{y:.1%}<extra></extra>" },
+    ];
+    lay = layout({ xaxis: { title: "PD decile (1 = lowest predicted risk), out-of-time", dtick: 1, gridcolor: css("--border") },
+                   yaxis: { title: "Default rate", tickformat: ".0%", gridcolor: css("--border") } });
+  } else {
+    const c = [...m.coefs].sort((a, b) => b.coef - a.coef);
+    traces = [{ type: "bar", orientation: "h", y: c.map(r => r.feature), x: c.map(r => r.coef), marker: { color: css("--c1") },
+                text: c.map(r => r.coef.toFixed(2)), textposition: "outside", cliponaxis: false,
+                hovertemplate: "%{y}: %{x:.3f}<extra></extra>" }];
+    lay = layout({ xaxis: { title: "Coefficient on WOE (negative = safer bins lower PD)", gridcolor: css("--border") },
+                   margin: { l: 160, r: 50, t: 16, b: 44 } });
+  }
+  Plotly.react("chart-model", traces, lay, CONFIG);
+}
+document.querySelectorAll("[data-mv]").forEach(b => b.addEventListener("click", () => {
+  modelView = b.dataset.mv;
+  document.querySelectorAll("[data-mv]").forEach(o => o.setAttribute("aria-pressed", o === b));
+  drawModel();
+}));
+
 // 6. A/B sample-size planner
 function abN(p1, p2, za, zb) {
   return Math.ceil((za + zb) ** 2 * (p1 * (1 - p1) + p2 * (1 - p2)) / (p2 - p1) ** 2);
@@ -414,7 +479,7 @@ function drawAB() {
 ["ab-p1", "ab-mde", "ab-alpha", "ab-power", "ab-volume"].forEach(id =>
   document.getElementById(id).addEventListener("input", drawAB));
 
-function drawAll() { drawYearly(); drawMonthly(); drawBands(); drawMixRate(); drawGrade(); drawDriver(); drawSeparation(); drawIV(); drawDrift(); drawAB(); }
+function drawAll() { drawYearly(); drawMonthly(); drawBands(); drawMixRate(); drawGrade(); drawDriver(); drawSeparation(); drawIV(); drawDrift(); drawModel(); drawAB(); }
 drawAll();
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawAll);
 </script>
